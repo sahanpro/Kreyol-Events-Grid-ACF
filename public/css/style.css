@@ -61,7 +61,12 @@
 .icon-left .keg-icn{margin-right:.4rem}
 
 .keg-date-tabs{display:flex;gap:12px;flex-wrap:wrap;margin-top:6px;margin-bottom:8px}
-.keg-tab{padding:10px 14px;border-radius:10px;cursor:pointer;border:1px solid rgba(255,255,255,.2);background:transparent}
+.keg-tab{padding:10px 14px;border-radius:10px;cursor:pointer;border:1px solid rgba(255,255,255,.2);background:#fff;color:#1d1738;transition:background .2s,color .2s,border-color .2s}
 .keg-tab.active{background:var(--wp--preset--color--primary,#6a5acd);color:#fff;border-color:transparent}
+.keg-tab:not(.active):hover{border-color:rgba(255,255,255,.35)}
 .keg-date-picker{display:none;gap:16px;margin-top:8px}
 .keg-geo-status{font-size:.9rem;margin-top:.35rem;opacity:.85}
+
+.keg-filters-card input[type="date"]{color-scheme:dark}
+.keg-filters-card input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(1);cursor:pointer}
+.keg-filters-card input[type="date"]::-webkit-calendar-picker-indicator:hover{opacity:.85}
