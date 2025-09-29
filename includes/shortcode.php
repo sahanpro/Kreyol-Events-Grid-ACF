@@ -123,7 +123,15 @@ function keg_render_results_count($ptype){
         ];
     }
     if(!empty($_GET['event_category'])) $meta_query[]=['key'=>'event_category','value'=>sanitize_text_field($_GET['event_category']),'compare'=>'LIKE'];
-    if(!empty($_GET['event_city']))     $meta_query[]=['key'=>'event_city','value'=>sanitize_text_field($_GET['event_city']),'compare'=>'LIKE'];
+    if(!empty($_GET['event_city'])){
+        $city_val = sanitize_text_field($_GET['event_city']);
+        $location_clause = keg_build_location_clause($city_val);
+        if(!empty($location_clause)){
+            $meta_query[] = $location_clause;
+        }else{
+            $meta_query[] = ['key'=>'event_city','value'=>$city_val,'compare'=>'LIKE'];
+        }
+    }
     if(!empty($_GET['event_mode']))     $meta_query[]=['key'=>'event_mode','value'=>sanitize_text_field($_GET['event_mode']),'compare'=>'='];
 
     $preset = isset($_GET['date_preset']) ? sanitize_text_field($_GET['date_preset']) : '';
@@ -174,7 +182,12 @@ function keg_events_loop_html($args=[]){
     }
     if(!empty($_GET['event_city'])){
         $val = sanitize_text_field($_GET['event_city']);
-        $meta_query[]=['key'=>'event_city','value'=>$val,'compare'=>'LIKE'];
+        $location_clause = keg_build_location_clause($val);
+        if(!empty($location_clause)){
+            $meta_query[] = $location_clause;
+        }else{
+            $meta_query[]=['key'=>'event_city','value'=>$val,'compare'=>'LIKE'];
+        }
     }
     if(!empty($_GET['event_mode'])){
         $val = sanitize_text_field($_GET['event_mode']);

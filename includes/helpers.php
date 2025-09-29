@@ -230,4 +230,51 @@ if (!function_exists('keg_pretty_date_from_raw')){
 function keg_pretty_date_from_raw($raw){
     $ts = keg_parse_to_ts($raw);
     return $ts ? date_i18n('D, M j Y',$ts) : '';
+
+/** Build a flexible meta_query clause for location searches. */
+if (!function_exists('keg_build_location_clause')){
+function keg_build_location_clause($raw){
+    $raw = trim((string)$raw);
+    if($raw===''){ return array(); }
+
+    $needles = array();
+    $add_needle = function($val) use (&$needles){
+        $val = sanitize_text_field($val);
+        if($val!==''){ $needles[$val] = true; }
+    };
+
+    $add_needle($raw);
+
+    $parts = preg_split('/[,|]/', $raw);
+    if($parts && count($parts)>1){
+        foreach($parts as $part){
+            $part = trim($part);
+            if($part!==''){ $add_needle($part); }
+        }
+    }
+
+    // fall back to trimmed words when comma separated parts are not provided
+    if(count($needles) === 1){
+        $words = preg_split('/\s+/', $raw);
+        if($words && count($words)>1){
+            foreach($words as $word){
+                $word = trim($word);
+                if($word!==''){ $add_needle($word); }
+            }
+        }
+    }
+
+    if(empty($needles)){ return array(); }
+
+    $clause = array('relation'=>'OR');
+    foreach(array_keys($needles) as $needle){
+        $clause[] = array(
+            'key'     => 'event_city',
+            'value'   => $needle,
+            'compare' => 'LIKE',
+        );
+    }
+
+    return $clause;
+
 }}
