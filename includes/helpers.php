@@ -148,12 +148,40 @@ function keg_date_meta_for_range($from_ts, $to_ts){
     if(!$to_ts){ $to_ts = $from_ts; }
     if($to_ts < $from_ts){ $t=$from_ts; $from_ts=$to_ts; $to_ts=$t; }
 
-    $fromYmd = (int)date('Ymd',$from_ts);
-    $toYmd   = (int)date('Ymd',$to_ts);
+    $from_ts = (int)$from_ts;
+    $to_ts   = (int)$to_ts;
+    $range_end_ts = $to_ts + DAY_IN_SECONDS - 1; // include entire final day
+
+    $fromYmd = date('Ymd',$from_ts);
+    $toYmd   = date('Ymd',$to_ts);
+    $from_dt = date('Y-m-d 00:00:00',$from_ts);
+    $to_dt   = date('Y-m-d 23:59:59',$to_ts);
 
     $or = array('relation'=>'OR');
-    // Numeric Ymd range
-    $or[] = array('key'=>'event_date','value'=>array($fromYmd,$toYmd),'compare'=>'BETWEEN','type'=>'NUMERIC');
+
+    // Match ACF-style Ymd values stored as strings
+    $or[] = array(
+        'key'     => 'event_date',
+        'value'   => array($fromYmd,$toYmd),
+        'compare' => 'BETWEEN',
+        'type'    => 'CHAR',
+    );
+
+    // Match unix timestamps saved as numeric meta
+    $or[] = array(
+        'key'     => 'event_date',
+        'value'   => array($from_ts,$range_end_ts),
+        'compare' => 'BETWEEN',
+        'type'    => 'NUMERIC',
+    );
+
+    // Match The Events Calendar style datetime values
+    $or[] = array(
+        'key'     => '_EventStartDate',
+        'value'   => array($from_dt,$to_dt),
+        'compare' => 'BETWEEN',
+        'type'    => 'DATETIME',
+    );
 
     // Equality per day for common legacy string formats (cap 90 days)
     $max_days = 90;
@@ -168,9 +196,137 @@ function keg_date_meta_for_range($from_ts, $to_ts){
     return $or;
 }}
 
+/** Resolve a date range from preset + custom inputs. */
+if (!function_exists('keg_resolve_requested_date_range')){
+function keg_resolve_requested_date_range($preset, $from_input, $to_input){
+    $preset = trim(strtolower((string)$preset));
+
+    if(in_array($preset, array('today','tomorrow','weekend'), true)){
+        list($from_ts, $to_ts) = keg_date_preset_range($preset);
+        return array($from_ts, $to_ts);
+    }
+
+    $from_ts = $from_input ? keg_parse_to_ts($from_input) : null;
+    $to_ts   = $to_input ? keg_parse_to_ts($to_input) : null;
+
+    if($from_ts && $to_ts && $to_ts < $from_ts){
+        $tmp = $from_ts;
+        $from_ts = $to_ts;
+        $to_ts = $tmp;
+    }
+
+    if(!$from_ts && !$to_ts){
+        return array(null,null);
+    }
+
+    if(!$from_ts){ $from_ts = $to_ts; }
+    if(!$to_ts){   $to_ts   = $from_ts; }
+
+    return array($from_ts, $to_ts);
+}}
+
 /** Pretty string for card display. */
 if (!function_exists('keg_pretty_date_from_raw')){
 function keg_pretty_date_from_raw($raw){
     $ts = keg_parse_to_ts($raw);
-    return $ts ? date('D, M j Y',$ts) : '';
+    return $ts ? date_i18n('D, M j Y',$ts) : '';
+}}
+
+/** Build a flexible meta_query clause for location searches. */
+if (!function_exists('keg_build_location_clause')){
+function keg_build_location_clause($raw){
+    $raw = trim((string)$raw);
+    if($raw===''){ return array(); }
+
+    $needles = array();
+    $add_needle = function($val) use (&$needles){
+        $val = sanitize_text_field($val);
+        if($val!==''){ $needles[$val] = true; }
+    };
+
+    $add_needle($raw);
+
+    $parts = preg_split('/[,|]/', $raw);
+    if($parts && count($parts)>1){
+        foreach($parts as $part){
+            $part = trim($part);
+            if($part!==''){ $add_needle($part); }
+        }
+    }
+
+    // fall back to trimmed words when comma separated parts are not provided
+    if(count($needles) === 1){
+        $words = preg_split('/\s+/', $raw);
+        if($words && count($words)>1){
+            foreach($words as $word){
+                $word = trim($word);
+                if($word!==''){ $add_needle($word); }
+            }
+        }
+    }
+
+    if(empty($needles)){ return array(); }
+
+    $clause = array('relation'=>'OR');
+    foreach(array_keys($needles) as $needle){
+        $clause[] = array(
+            'key'     => 'event_city',
+            'value'   => $needle,
+            'compare' => 'LIKE',
+        );
+    }
+
+    return $clause;
+}}
+
+/** Ensure events queries sort by the first available date meta. */
+if (!function_exists('keg_events_sort_clauses')){
+function keg_events_sort_clauses($clauses, $query){
+    if(empty($query) || !is_object($query) || !$query->get('_keg_sort_events')){
+        return $clauses;
+    }
+
+    global $wpdb;
+
+    if(!isset($clauses['join'])){ $clauses['join'] = ''; }
+    if(!isset($clauses['fields'])){ $clauses['fields'] = ''; }
+    if(!isset($clauses['orderby'])){ $clauses['orderby'] = ''; }
+
+    $join_event = " LEFT JOIN {$wpdb->postmeta} pm_k1 ON (pm_k1.post_id={$wpdb->posts}.ID AND pm_k1.meta_key='event_date') ";
+    $join_tec   = " LEFT JOIN {$wpdb->postmeta} pm_k2 ON (pm_k2.post_id={$wpdb->posts}.ID AND pm_k2.meta_key='_EventStartDate') ";
+
+    if(strpos($clauses['join'], $join_event) === false){
+        $clauses['join'] .= $join_event;
+    }
+    if(strpos($clauses['join'], $join_tec) === false){
+        $clauses['join'] .= $join_tec;
+    }
+
+    if(strpos($clauses['fields'], 'AS _keg_sort_ts') === false){
+        $primary_case = "CASE\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[0-9]{10,13}$' THEN CAST(LEFT(pm_k1.meta_value,10) AS UNSIGNED)\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[0-9]{8}$' THEN UNIX_TIMESTAMP(STR_TO_DATE(pm_k1.meta_value,'%Y%m%d'))\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN UNIX_TIMESTAMP(STR_TO_DATE(pm_k1.meta_value,'%Y-%m-%d'))\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[0-9]{4}/[0-9]{2}/[0-9]{2}$' THEN UNIX_TIMESTAMP(STR_TO_DATE(pm_k1.meta_value,'%Y/%m/%d'))\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN UNIX_TIMESTAMP(STR_TO_DATE(pm_k1.meta_value,'%m/%d/%Y'))\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[0-9]{2}-[0-9]{2}-[0-9]{4}$' THEN UNIX_TIMESTAMP(STR_TO_DATE(pm_k1.meta_value,'%m-%d-%Y'))\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}(:[0-9]{2})?$' THEN UNIX_TIMESTAMP(pm_k1.meta_value)\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[A-Za-z]+ [0-9]{1,2}, [0-9]{4}$' THEN UNIX_TIMESTAMP(STR_TO_DATE(pm_k1.meta_value,'%M %e, %Y'))\n"
+            . "            ELSE NULL\n"
+            . "        END";
+
+        $secondary_case = "CASE\n"
+            . "            WHEN pm_k2.meta_value IS NOT NULL AND pm_k2.meta_value <> '' THEN UNIX_TIMESTAMP(pm_k2.meta_value)\n"
+            . "            ELSE NULL\n"
+            . "        END";
+
+        $sort_expr = "COALESCE(" . $primary_case . ", " . $secondary_case . ", UNIX_TIMESTAMP({$wpdb->posts}.post_date))";
+        $clauses['fields'] .= ', ' . $sort_expr . ' AS _keg_sort_ts ';
+    }
+
+    $order_fragment = '_keg_sort_ts ASC';
+    $fallback_order = $wpdb->posts . '.ID ASC';
+    $clauses['orderby'] = $order_fragment . ', ' . $fallback_order;
+
+    return $clauses;
 }}

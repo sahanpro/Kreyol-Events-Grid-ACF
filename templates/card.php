@@ -3,17 +3,22 @@ $ename = function_exists('get_field') ? get_field('event_name') : '';
 $ecity = function_exists('get_field') ? get_field('event_city') : '';
 $ecat  = function_exists('get_field') ? get_field('event_category') : '';
 $edate = function_exists('get_field') ? get_field('event_date') : '';
+if($edate === '' || $edate === null){
+    $edate = get_post_meta(get_the_ID(),'event_date',true);
+}
 $emode = function_exists('get_field') ? get_field('event_mode') : '';
 $venue = function_exists('get_field') ? get_field('event_venue') : '';
 $addr  = function_exists('get_field') ? get_field('event_address') : '';
 
 $display_date = '';
 if ($edate) {
-    if (is_numeric($edate))      $display_date = date_i18n('D, M j Y', intval($edate));
-    elseif (strtotime($edate))   $display_date = date_i18n('D, M j Y', strtotime($edate));
-} else {
+    $display_date = keg_pretty_date_from_raw($edate);
+}
+if (!$display_date) {
     $tec = get_post_meta(get_the_ID(), '_EventStartDate', true);
-    if ($tec) $display_date = date_i18n('D, M j Y', strtotime($tec));
+    if ($tec) {
+        $display_date = keg_pretty_date_from_raw($tec);
+    }
 }
 $title = $ename ? $ename : get_the_title();
 ?>

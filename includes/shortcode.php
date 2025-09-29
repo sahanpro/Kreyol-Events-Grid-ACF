@@ -20,6 +20,16 @@ function keg_render_events_shortcode($atts){
 
     // dropdown data
     $cats  = keg_distinct_meta_values($ptype,'event_category',200);
+    $default_cats = array('Music','Dancing','Sport and Fitness','Art & Culture','Social Activities','Restaurant');
+    if(!empty($default_cats)){
+        $default_cats = array_values(array_filter(array_map(function($dc){
+            $dc = trim((string)$dc);
+            return $dc !== '' ? $dc : null;
+        }, $default_cats)));
+        if(!empty($default_cats)){
+            $cats = array_values(array_unique(array_merge($default_cats, $cats)));
+        }
+    }
     $cities= keg_distinct_meta_values($ptype,'event_city',200);
 
     wp_enqueue_style('keg-style');
@@ -113,8 +123,28 @@ function keg_render_results_count($ptype){
         ];
     }
     if(!empty($_GET['event_category'])) $meta_query[]=['key'=>'event_category','value'=>sanitize_text_field($_GET['event_category']),'compare'=>'LIKE'];
-    if(!empty($_GET['event_city']))     $meta_query[]=['key'=>'event_city','value'=>sanitize_text_field($_GET['event_city']),'compare'=>'LIKE'];
+    if(!empty($_GET['event_city'])){
+        $city_val = sanitize_text_field($_GET['event_city']);
+        $location_clause = keg_build_location_clause($city_val);
+        if(!empty($location_clause)){
+            $meta_query[] = $location_clause;
+        }else{
+            $meta_query[] = ['key'=>'event_city','value'=>$city_val,'compare'=>'LIKE'];
+        }
+    }
     if(!empty($_GET['event_mode']))     $meta_query[]=['key'=>'event_mode','value'=>sanitize_text_field($_GET['event_mode']),'compare'=>'='];
+
+    $preset = isset($_GET['date_preset']) ? sanitize_text_field($_GET['date_preset']) : '';
+    $dfrom  = isset($_GET['date_from']) ? sanitize_text_field($_GET['date_from']) : '';
+    $dto    = isset($_GET['date_to']) ? sanitize_text_field($_GET['date_to']) : '';
+    $allowed_presets = array('','today','tomorrow','weekend','custom');
+    if(!in_array($preset,$allowed_presets,true)){ $preset=''; }
+
+    list($from_ts,$to_ts) = keg_resolve_requested_date_range($preset,$dfrom,$dto);
+    if($from_ts || $to_ts){
+        $date_clause = keg_date_meta_for_range($from_ts,$to_ts);
+        if(!empty($date_clause)){ $meta_query[] = $date_clause; }
+    }
 
     $args=['post_type'=>$ptype,'post_status'=>'publish','posts_per_page'=>1,'fields'=>'ids','no_found_rows'=>false,'meta_query'=>$meta_query];
     $q=new WP_Query($args);
@@ -125,13 +155,19 @@ function keg_render_results_count($ptype){
 
 /** Main loop that builds the actual results with pagination */
 function keg_events_loop_html($args=[]){
-    $per_page = (int)($args['per_page'] ?? 12);
-    $ptype    = $args['post_type'] ?? 'post';
+    $per_page = isset($args['per_page']) ? (int)$args['per_page'] : 12;
+    $ptype    = isset($args['post_type']) ? $args['post_type'] : 'post';
     $paged    = max(1, get_query_var('paged') ? get_query_var('paged') : ( get_query_var('page') ? get_query_var('page') : (isset($_GET['pg']) ? intval($_GET['pg']) : 1 ) ));
     $keyword  = isset($args['q']) ? sanitize_text_field($args['q']) : '';
 
     $meta_query=['relation'=>'AND'];
     $tax_query=[];
+
+    $preset = isset($_GET['date_preset']) ? sanitize_text_field($_GET['date_preset']) : '';
+    $dfrom  = isset($_GET['date_from']) ? sanitize_text_field($_GET['date_from']) : '';
+    $dto    = isset($_GET['date_to']) ? sanitize_text_field($_GET['date_to']) : '';
+    $allowed_presets = array('','today','tomorrow','weekend','custom');
+    if(!in_array($preset,$allowed_presets,true)){ $preset=''; }
 
     if($keyword){
         $meta_query[]=['relation'=>'OR',
@@ -146,26 +182,22 @@ function keg_events_loop_html($args=[]){
     }
     if(!empty($_GET['event_city'])){
         $val = sanitize_text_field($_GET['event_city']);
-        $meta_query[]=['key'=>'event_city','value'=>$val,'compare'=>'LIKE'];
+        $location_clause = keg_build_location_clause($val);
+        if(!empty($location_clause)){
+            $meta_query[] = $location_clause;
+        }else{
+            $meta_query[]=['key'=>'event_city','value'=>$val,'compare'=>'LIKE'];
+        }
     }
     if(!empty($_GET['event_mode'])){
         $val = sanitize_text_field($_GET['event_mode']);
         $meta_query[]=['key'=>'event_mode','value'=>$val,'compare'=>'='];
     }
 
-    // date logic
-    $from_ts = null; $to_ts=null;
-    if(in_array($preset, array('today','tomorrow','weekend'), true)){
-        list($from_ts,$to_ts)=keg_date_preset_range($preset);
-        if($from_ts){
-            $meta_query[] = keg_build_date_or($from_ts, $to_ts);
-        }
-    } else {
-        $from_ts = $dfrom ? strtotime($dfrom.' 00:00:00') : null;
-        $to_ts   = $dto   ? strtotime($dto.' 23:59:59') : null;
-        if($from_ts || $to_ts){
-            $meta_query[] = keg_build_date_or($from_ts ?: strtotime('today 00:00:00'), $to_ts ?: $from_ts);
-        }
+    list($from_ts,$to_ts) = keg_resolve_requested_date_range($preset,$dfrom,$dto);
+    if($from_ts || $to_ts){
+        $date_clause = keg_date_meta_for_range($from_ts,$to_ts);
+        if(!empty($date_clause)){ $meta_query[] = $date_clause; }
     }
 
     $query_args=[
@@ -177,23 +209,18 @@ function keg_events_loop_html($args=[]){
         'meta_query'=>$meta_query,
         'tax_query'=>$tax_query,
         '_keg_title_like'=>$keyword,
+        '_keg_sort_events'=>1,
     ];
 
     // sort by coalesced date (ACF event_date numeric or TEC _EventStartDate datetime)
-    add_filter('posts_clauses', function($clauses){
-        global $wpdb;
-        $clauses['join']   .= " LEFT JOIN {$wpdb->postmeta} pm_k1 ON (pm_k1.post_id={$wpdb->posts}.ID AND pm_k1.meta_key='event_date') ";
-        $clauses['join']   .= " LEFT JOIN {$wpdb->postmeta} pm_k2 ON (pm_k2.post_id={$wpdb->posts}.ID AND pm_k2.meta_key='_EventStartDate') ";
-        $clauses['fields'] .= ", COALESCE(pm_k1.meta_value, pm_k2.meta_value) AS _keg_sort_date ";
-        $clauses['orderby'] = " _keg_sort_date ASC ";
-        return $clauses;
-    }, 10, 1);
+    add_filter('posts_clauses', 'keg_events_sort_clauses', 10, 2);
 
     if($keyword){ add_filter('posts_where','keg_where_title_like',10,2); }
 
     $q=new WP_Query($query_args);
 
     if($keyword){ remove_filter('posts_where','keg_where_title_like',10); }
+    remove_filter('posts_clauses', 'keg_events_sort_clauses', 10);
 
     ob_start();
     if($q->have_posts()){
