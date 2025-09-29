@@ -230,9 +230,7 @@ if (!function_exists('keg_pretty_date_from_raw')){
 function keg_pretty_date_from_raw($raw){
     $ts = keg_parse_to_ts($raw);
     return $ts ? date_i18n('D, M j Y',$ts) : '';
-
 }}
-
 
 
 /** Build a flexible meta_query clause for location searches. */
@@ -305,6 +303,34 @@ function keg_events_sort_clauses($clauses, $query){
         $clauses['join'] .= $join_tec;
     }
 
+    if(strpos($clauses['fields'], 'AS _keg_sort_ts') === false){
+        $primary_case = "CASE\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[0-9]{10,13}$' THEN CAST(LEFT(pm_k1.meta_value,10) AS UNSIGNED)\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[0-9]{8}$' THEN UNIX_TIMESTAMP(STR_TO_DATE(pm_k1.meta_value,'%Y%m%d'))\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' THEN UNIX_TIMESTAMP(STR_TO_DATE(pm_k1.meta_value,'%Y-%m-%d'))\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[0-9]{4}/[0-9]{2}/[0-9]{2}$' THEN UNIX_TIMESTAMP(STR_TO_DATE(pm_k1.meta_value,'%Y/%m/%d'))\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[0-9]{2}/[0-9]{2}/[0-9]{4}$' THEN UNIX_TIMESTAMP(STR_TO_DATE(pm_k1.meta_value,'%m/%d/%Y'))\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[0-9]{2}-[0-9]{2}-[0-9]{4}$' THEN UNIX_TIMESTAMP(STR_TO_DATE(pm_k1.meta_value,'%m-%d-%Y'))\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}(:[0-9]{2})?$' THEN UNIX_TIMESTAMP(pm_k1.meta_value)\n"
+            . "            WHEN pm_k1.meta_value REGEXP '^[A-Za-z]+ [0-9]{1,2}, [0-9]{4}$' THEN UNIX_TIMESTAMP(STR_TO_DATE(pm_k1.meta_value,'%M %e, %Y'))\n"
+            . "            ELSE NULL\n"
+            . "        END";
+
+        $secondary_case = "CASE\n"
+            . "            WHEN pm_k2.meta_value IS NOT NULL AND pm_k2.meta_value <> '' THEN UNIX_TIMESTAMP(pm_k2.meta_value)\n"
+            . "            ELSE NULL\n"
+            . "        END";
+
+        $sort_expr = "COALESCE(" . $primary_case . ", " . $secondary_case . ", UNIX_TIMESTAMP({$wpdb->posts}.post_date))";
+        $clauses['fields'] .= ', ' . $sort_expr . ' AS _keg_sort_ts ';
+    }
+
+    $order_fragment = '_keg_sort_ts ASC';
+    $fallback_order = $wpdb->posts . '.ID ASC';
+    $clauses['orderby'] = $order_fragment . ', ' . $fallback_order;
+
+    return $clauses;
+  
     if(strpos($clauses['fields'], 'COALESCE(pm_k1.meta_value, pm_k2.meta_value) AS _keg_sort_date') === false){
         $clauses['fields'] .= ", COALESCE(pm_k1.meta_value, pm_k2.meta_value) AS _keg_sort_date ";
     }
