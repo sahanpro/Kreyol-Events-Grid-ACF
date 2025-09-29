@@ -232,6 +232,7 @@ function keg_pretty_date_from_raw($raw){
     return $ts ? date_i18n('D, M j Y',$ts) : '';
 }}
 
+
 /** Build a flexible meta_query clause for location searches. */
 if (!function_exists('keg_build_location_clause')){
 function keg_build_location_clause($raw){
@@ -329,4 +330,16 @@ function keg_events_sort_clauses($clauses, $query){
     $clauses['orderby'] = $order_fragment . ', ' . $fallback_order;
 
     return $clauses;
+  
+    if(strpos($clauses['fields'], 'COALESCE(pm_k1.meta_value, pm_k2.meta_value) AS _keg_sort_date') === false){
+        $clauses['fields'] .= ", COALESCE(pm_k1.meta_value, pm_k2.meta_value) AS _keg_sort_date ";
+    }
+
+    $order_fragment = '_keg_sort_date ASC';
+    if(stripos($clauses['orderby'], $order_fragment) === false){
+        $clauses['orderby'] = trim($order_fragment);
+    }
+
+    return $clauses;
+
 }}
