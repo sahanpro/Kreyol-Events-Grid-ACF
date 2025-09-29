@@ -20,6 +20,16 @@ function keg_render_events_shortcode($atts){
 
     // dropdown data
     $cats  = keg_distinct_meta_values($ptype,'event_category',200);
+    $default_cats = array('Music','Dancing','Sport and Fitness','Art & Culture','Social Activities','Restaurant');
+    if(!empty($default_cats)){
+        $default_cats = array_values(array_filter(array_map(function($dc){
+            $dc = trim((string)$dc);
+            return $dc !== '' ? $dc : null;
+        }, $default_cats)));
+        if(!empty($default_cats)){
+            $cats = array_values(array_unique(array_merge($default_cats, $cats)));
+        }
+    }
     $cities= keg_distinct_meta_values($ptype,'event_city',200);
 
     wp_enqueue_style('keg-style');
