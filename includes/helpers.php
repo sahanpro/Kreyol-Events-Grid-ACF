@@ -230,7 +230,10 @@ if (!function_exists('keg_pretty_date_from_raw')){
 function keg_pretty_date_from_raw($raw){
     $ts = keg_parse_to_ts($raw);
     return $ts ? date_i18n('D, M j Y',$ts) : '';
+
 }}
+
+
 
 /** Build a flexible meta_query clause for location searches. */
 if (!function_exists('keg_build_location_clause')){
@@ -312,4 +315,5 @@ function keg_events_sort_clauses($clauses, $query){
     }
 
     return $clauses;
+
 }}
