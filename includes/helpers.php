@@ -231,6 +231,10 @@ function keg_pretty_date_from_raw($raw){
     $ts = keg_parse_to_ts($raw);
     return $ts ? date_i18n('D, M j Y',$ts) : '';
 
+}}
+
+
+
 /** Build a flexible meta_query clause for location searches. */
 if (!function_exists('keg_build_location_clause')){
 function keg_build_location_clause($raw){
@@ -276,5 +280,40 @@ function keg_build_location_clause($raw){
     }
 
     return $clause;
+}}
+
+/** Ensure events queries sort by the first available date meta. */
+if (!function_exists('keg_events_sort_clauses')){
+function keg_events_sort_clauses($clauses, $query){
+    if(empty($query) || !is_object($query) || !$query->get('_keg_sort_events')){
+        return $clauses;
+    }
+
+    global $wpdb;
+
+    if(!isset($clauses['join'])){ $clauses['join'] = ''; }
+    if(!isset($clauses['fields'])){ $clauses['fields'] = ''; }
+    if(!isset($clauses['orderby'])){ $clauses['orderby'] = ''; }
+
+    $join_event = " LEFT JOIN {$wpdb->postmeta} pm_k1 ON (pm_k1.post_id={$wpdb->posts}.ID AND pm_k1.meta_key='event_date') ";
+    $join_tec   = " LEFT JOIN {$wpdb->postmeta} pm_k2 ON (pm_k2.post_id={$wpdb->posts}.ID AND pm_k2.meta_key='_EventStartDate') ";
+
+    if(strpos($clauses['join'], $join_event) === false){
+        $clauses['join'] .= $join_event;
+    }
+    if(strpos($clauses['join'], $join_tec) === false){
+        $clauses['join'] .= $join_tec;
+    }
+
+    if(strpos($clauses['fields'], 'COALESCE(pm_k1.meta_value, pm_k2.meta_value) AS _keg_sort_date') === false){
+        $clauses['fields'] .= ", COALESCE(pm_k1.meta_value, pm_k2.meta_value) AS _keg_sort_date ";
+    }
+
+    $order_fragment = '_keg_sort_date ASC';
+    if(stripos($clauses['orderby'], $order_fragment) === false){
+        $clauses['orderby'] = trim($order_fragment);
+    }
+
+    return $clauses;
 
 }}

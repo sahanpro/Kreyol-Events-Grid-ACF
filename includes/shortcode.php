@@ -155,8 +155,8 @@ function keg_render_results_count($ptype){
 
 /** Main loop that builds the actual results with pagination */
 function keg_events_loop_html($args=[]){
-    $per_page = (int)($args['per_page'] ?? 12);
-    $ptype    = $args['post_type'] ?? 'post';
+    $per_page = isset($args['per_page']) ? (int)$args['per_page'] : 12;
+    $ptype    = isset($args['post_type']) ? $args['post_type'] : 'post';
     $paged    = max(1, get_query_var('paged') ? get_query_var('paged') : ( get_query_var('page') ? get_query_var('page') : (isset($_GET['pg']) ? intval($_GET['pg']) : 1 ) ));
     $keyword  = isset($args['q']) ? sanitize_text_field($args['q']) : '';
 
@@ -209,23 +209,18 @@ function keg_events_loop_html($args=[]){
         'meta_query'=>$meta_query,
         'tax_query'=>$tax_query,
         '_keg_title_like'=>$keyword,
+        '_keg_sort_events'=>1,
     ];
 
     // sort by coalesced date (ACF event_date numeric or TEC _EventStartDate datetime)
-    add_filter('posts_clauses', function($clauses){
-        global $wpdb;
-        $clauses['join']   .= " LEFT JOIN {$wpdb->postmeta} pm_k1 ON (pm_k1.post_id={$wpdb->posts}.ID AND pm_k1.meta_key='event_date') ";
-        $clauses['join']   .= " LEFT JOIN {$wpdb->postmeta} pm_k2 ON (pm_k2.post_id={$wpdb->posts}.ID AND pm_k2.meta_key='_EventStartDate') ";
-        $clauses['fields'] .= ", COALESCE(pm_k1.meta_value, pm_k2.meta_value) AS _keg_sort_date ";
-        $clauses['orderby'] = " _keg_sort_date ASC ";
-        return $clauses;
-    }, 10, 1);
+    add_filter('posts_clauses', 'keg_events_sort_clauses', 10, 2);
 
     if($keyword){ add_filter('posts_where','keg_where_title_like',10,2); }
 
     $q=new WP_Query($query_args);
 
     if($keyword){ remove_filter('posts_where','keg_where_title_like',10); }
+    remove_filter('posts_clauses', 'keg_events_sort_clauses', 10);
 
     ob_start();
     if($q->have_posts()){

@@ -69,8 +69,9 @@
 .keg-geo-status{font-size:.9rem;margin-top:.35rem;opacity:.85}
 
 .keg-filters-card input[type="date"]{color-scheme:dark}
-.keg-filters-card input[type="date"]::-webkit-calendar-picker-indicator{filter:brightness(0) saturate(100%) invert(1);opacity:.95;cursor:pointer}
-.keg-filters-card input[type="date"]::-webkit-calendar-picker-indicator:hover{opacity:1}
+/* .keg-filters-card input[type="date"]::-webkit-calendar-picker-indicator{filter:brightness(0) saturate(100%) invert(1);opacity:.95;cursor:pointer}
+.keg-filters-card input[type="date"]::-webkit-calendar-picker-indicator:hover{opacity:1} */
 .keg-filters-card input[type="date"]::-moz-calendar-picker-indicator{filter:brightness(0) saturate(100%) invert(1);opacity:.95}
 .keg-filters-card input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(1);cursor:pointer}
 .keg-filters-card input[type="date"]::-webkit-calendar-picker-indicator:hover{opacity:.85}
+
